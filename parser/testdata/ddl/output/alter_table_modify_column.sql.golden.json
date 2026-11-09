@@ -1,0 +1,59 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 53,
+    "TableIdentifier": {
+      "Database": null,
+      "Table": {
+        "Name": "t1",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 14
+      }
+    },
+    "OnCluster": null,
+    "AlterExprs": [
+      {
+        "ModifyPos": 15,
+        "StatementEnd": 53,
+        "IfExists": false,
+        "Column": {
+          "NamePos": 29,
+          "ColumnEnd": 53,
+          "Name": {
+            "Ident": {
+              "Name": "f1",
+              "QuoteType": 1,
+              "NamePos": 29,
+              "NameEnd": 31
+            },
+            "DotIdent": null
+          },
+          "Type": {
+            "Name": {
+              "Name": "String",
+              "QuoteType": 1,
+              "NamePos": 32,
+              "NameEnd": 38
+            }
+          },
+          "NotNull": null,
+          "Nullable": null,
+          "DefaultExpr": null,
+          "MaterializedExpr": null,
+          "AliasExpr": null,
+          "Codec": null,
+          "TTL": null,
+          "Comment": {
+            "LiteralPos": 39,
+            "LiteralEnd": 53,
+            "Literal": "test"
+          },
+          "CompressionCodec": null
+        },
+        "RemovePropertyType": null
+      }
+    ],
+    "Settings": null
+  }
+]

@@ -1,0 +1,95 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 92,
+    "TableIdentifier": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 16
+      },
+      "Table": {
+        "Name": "users",
+        "QuoteType": 1,
+        "NamePos": 17,
+        "NameEnd": 22
+      }
+    },
+    "OnCluster": null,
+    "AlterExprs": [
+      {
+        "UpdatePos": 23,
+        "StatementEnd": 92,
+        "Assignments": [
+          {
+            "AssignmentPos": 30,
+            "Column": {
+              "Ident": {
+                "Name": "status",
+                "QuoteType": 1,
+                "NamePos": 30,
+                "NameEnd": 36
+              },
+              "DotIdent": null
+            },
+            "Expr": {
+              "LiteralPos": 39,
+              "LiteralEnd": 47,
+              "Literal": "active"
+            }
+          },
+          {
+            "AssignmentPos": 49,
+            "Column": {
+              "Ident": {
+                "Name": "updated_at",
+                "QuoteType": 1,
+                "NamePos": 49,
+                "NameEnd": 59
+              },
+              "DotIdent": null
+            },
+            "Expr": {
+              "Name": {
+                "Name": "now",
+                "QuoteType": 1,
+                "NamePos": 62,
+                "NameEnd": 65
+              },
+              "Params": {
+                "LeftParenPos": 65,
+                "RightParenPos": 66,
+                "Items": {
+                  "ListPos": 66,
+                  "ListEnd": 66,
+                  "HasDistinct": false,
+                  "Items": []
+                },
+                "ColumnArgList": null
+              }
+            }
+          }
+        ],
+        "InPartition": null,
+        "WhereClause": {
+          "LeftExpr": {
+            "Name": "status",
+            "QuoteType": 1,
+            "NamePos": 74,
+            "NameEnd": 80
+          },
+          "Operation": "=",
+          "RightExpr": {
+            "LiteralPos": 83,
+            "LiteralEnd": 92,
+            "Literal": "pending"
+          },
+          "HasGlobal": false,
+          "HasNot": false
+        }
+      }
+    ],
+    "Settings": null
+  }
+]

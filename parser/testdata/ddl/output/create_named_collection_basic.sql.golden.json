@@ -1,0 +1,64 @@
+[
+  {
+    "CreatePos": 0,
+    "StatementEnd": 159,
+    "Name": {
+      "Name": "servercore_s3_config",
+      "QuoteType": 1,
+      "NamePos": 38,
+      "NameEnd": 58
+    },
+    "IfNotExists": true,
+    "OnCluster": null,
+    "Params": [
+      {
+        "ParamPos": 62,
+        "Name": {
+          "Name": "url",
+          "QuoteType": 1,
+          "NamePos": 62,
+          "NameEnd": 65
+        },
+        "Value": {
+          "LiteralPos": 68,
+          "LiteralEnd": 95,
+          "Literal": "http://local-minio:9000/*"
+        },
+        "Overridable": false,
+        "NotOverridable": false
+      },
+      {
+        "ParamPos": 97,
+        "Name": {
+          "Name": "access_key_id",
+          "QuoteType": 1,
+          "NamePos": 97,
+          "NameEnd": 110
+        },
+        "Value": {
+          "LiteralPos": 113,
+          "LiteralEnd": 125,
+          "Literal": "minioadmin"
+        },
+        "Overridable": false,
+        "NotOverridable": false
+      },
+      {
+        "ParamPos": 127,
+        "Name": {
+          "Name": "secret_access_key",
+          "QuoteType": 1,
+          "NamePos": 127,
+          "NameEnd": 144
+        },
+        "Value": {
+          "LiteralPos": 147,
+          "LiteralEnd": 159,
+          "Literal": "minioadmin"
+        },
+        "Overridable": false,
+        "NotOverridable": false
+      }
+    ]
+  }
+]

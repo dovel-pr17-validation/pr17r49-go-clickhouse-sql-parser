@@ -1,0 +1,44 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 62,
+    "TableIdentifier": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 16
+      },
+      "Table": {
+        "Name": "events",
+        "QuoteType": 1,
+        "NamePos": 17,
+        "NameEnd": 23
+      }
+    },
+    "OnCluster": null,
+    "AlterExprs": [
+      {
+        "DeletePos": 24,
+        "StatementEnd": 62,
+        "WhereClause": {
+          "LeftExpr": {
+            "Name": "created_at",
+            "QuoteType": 1,
+            "NamePos": 37,
+            "NameEnd": 47
+          },
+          "Operation": "\u003c",
+          "RightExpr": {
+            "LiteralPos": 50,
+            "LiteralEnd": 62,
+            "Literal": "2023-01-01"
+          },
+          "HasGlobal": false,
+          "HasNot": false
+        }
+      }
+    ],
+    "Settings": null
+  }
+]

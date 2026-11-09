@@ -1,0 +1,18 @@
+[
+  {
+    "ShowPos": 0,
+    "StatementEnd": 49,
+    "ShowType": "DATABASES",
+    "Target": null,
+    "NotLike": false,
+    "LikeType": "",
+    "LikePattern": null,
+    "Limit": null,
+    "OutFile": {
+      "LiteralPos": 28,
+      "LiteralEnd": 48,
+      "Literal": "/tmp/databases.txt"
+    },
+    "Format": null
+  }
+]

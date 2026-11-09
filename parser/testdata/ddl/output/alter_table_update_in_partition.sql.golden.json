@@ -1,0 +1,73 @@
+[
+  {
+    "AlterPos": 0,
+    "StatementEnd": 99,
+    "TableIdentifier": {
+      "Database": {
+        "Name": "test",
+        "QuoteType": 1,
+        "NamePos": 12,
+        "NameEnd": 16
+      },
+      "Table": {
+        "Name": "users",
+        "QuoteType": 1,
+        "NamePos": 17,
+        "NameEnd": 22
+      }
+    },
+    "OnCluster": null,
+    "AlterExprs": [
+      {
+        "UpdatePos": 23,
+        "StatementEnd": 99,
+        "Assignments": [
+          {
+            "AssignmentPos": 30,
+            "Column": {
+              "Ident": {
+                "Name": "status",
+                "QuoteType": 1,
+                "NamePos": 30,
+                "NameEnd": 36
+              },
+              "DotIdent": null
+            },
+            "Expr": {
+              "LiteralPos": 39,
+              "LiteralEnd": 49,
+              "Literal": "inactive"
+            }
+          }
+        ],
+        "InPartition": {
+          "PartitionPos": 53,
+          "Expr": {
+            "LiteralPos": 63,
+            "LiteralEnd": 75,
+            "Literal": "2024-01-01"
+          },
+          "ID": null,
+          "All": false
+        },
+        "WhereClause": {
+          "LeftExpr": {
+            "Name": "status",
+            "QuoteType": 1,
+            "NamePos": 82,
+            "NameEnd": 88
+          },
+          "Operation": "=",
+          "RightExpr": {
+            "LiteralPos": 91,
+            "LiteralEnd": 99,
+            "Literal": "active"
+          },
+          "HasGlobal": false,
+          "HasNot": false
+        }
+      }
+    ],
+    "Settings": null
+  }
+]

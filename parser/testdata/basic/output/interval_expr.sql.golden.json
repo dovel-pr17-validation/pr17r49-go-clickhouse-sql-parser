@@ -1,0 +1,261 @@
+[
+  {
+    "SelectPos": 0,
+    "StatementEnd": 21,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "DistinctOn": null,
+    "SelectItems": [
+      {
+        "Expr": {
+          "IntervalPos": 7,
+          "Expr": {
+            "NumPos": 16,
+            "NumEnd": 17,
+            "Literal": "4",
+            "Base": 10
+          },
+          "Unit": {
+            "Name": "DAY",
+            "QuoteType": 1,
+            "NamePos": 18,
+            "NameEnd": 21
+          }
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null,
+    "Intersect": null
+  },
+  {
+    "SelectPos": 23,
+    "StatementEnd": 45,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "DistinctOn": null,
+    "SelectItems": [
+      {
+        "Expr": {
+          "IntervalPos": 30,
+          "Expr": {
+            "NumPos": 39,
+            "NumEnd": 41,
+            "Literal": ".1",
+            "Base": 10
+          },
+          "Unit": {
+            "Name": "DAY",
+            "QuoteType": 1,
+            "NamePos": 42,
+            "NameEnd": 45
+          }
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null,
+    "Intersect": null
+  },
+  {
+    "SelectPos": 47,
+    "StatementEnd": 72,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "DistinctOn": null,
+    "SelectItems": [
+      {
+        "Expr": {
+          "IntervalPos": 54,
+          "Expr": {
+            "LeftExpr": {
+              "Name": "a",
+              "QuoteType": 1,
+              "NamePos": 63,
+              "NameEnd": 64
+            },
+            "Operation": "+",
+            "RightExpr": {
+              "Name": "b",
+              "QuoteType": 1,
+              "NamePos": 67,
+              "NameEnd": 68
+            },
+            "HasGlobal": false,
+            "HasNot": false
+          },
+          "Unit": {
+            "Name": "DAY",
+            "QuoteType": 1,
+            "NamePos": 69,
+            "NameEnd": 72
+          }
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null,
+    "Intersect": null
+  },
+  {
+    "SelectPos": 74,
+    "StatementEnd": 104,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "DistinctOn": null,
+    "SelectItems": [
+      {
+        "Expr": {
+          "IntervalPos": 81,
+          "Expr": {
+            "Name": {
+              "Name": "toUInt8",
+              "QuoteType": 1,
+              "NamePos": 90,
+              "NameEnd": 97
+            },
+            "Params": {
+              "LeftParenPos": 97,
+              "RightParenPos": 99,
+              "Items": {
+                "ListPos": 98,
+                "ListEnd": 99,
+                "HasDistinct": false,
+                "Items": [
+                  {
+                    "Expr": {
+                      "NumPos": 98,
+                      "NumEnd": 99,
+                      "Literal": "1",
+                      "Base": 10
+                    },
+                    "Alias": null
+                  }
+                ]
+              },
+              "ColumnArgList": null
+            }
+          },
+          "Unit": {
+            "Name": "DAY",
+            "QuoteType": 1,
+            "NamePos": 101,
+            "NameEnd": 104
+          }
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null,
+    "Intersect": null
+  },
+  {
+    "SelectPos": 106,
+    "StatementEnd": 129,
+    "With": null,
+    "Top": null,
+    "HasDistinct": false,
+    "DistinctOn": null,
+    "SelectItems": [
+      {
+        "Expr": {
+          "IntervalPos": 113,
+          "Expr": {
+            "Name": "asc",
+            "QuoteType": 1,
+            "NamePos": 122,
+            "NameEnd": 125
+          },
+          "Unit": {
+            "Name": "DAY",
+            "QuoteType": 1,
+            "NamePos": 126,
+            "NameEnd": 129
+          }
+        },
+        "Modifiers": [],
+        "Alias": null
+      }
+    ],
+    "From": null,
+    "Window": null,
+    "Prewhere": null,
+    "Where": null,
+    "GroupBy": null,
+    "WithTotal": false,
+    "Having": null,
+    "OrderBy": null,
+    "LimitBy": null,
+    "Limit": null,
+    "Settings": null,
+    "Format": null,
+    "UnionAll": null,
+    "UnionDistinct": null,
+    "Except": null,
+    "Intersect": null
+  }
+]

@@ -1,0 +1,600 @@
+package parser
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// parseSelectItemExpr parses a single-statement SELECT and returns the first
+// projection expression, so tests can assert the tree structure directly.
+func parseSelectItemExpr(t *testing.T, sql string) Expr {
+	t.Helper()
+	stmts, err := NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	selectQuery, ok := stmts[0].(*SelectQuery)
+	require.True(t, ok, "expected *SelectQuery, got %T", stmts[0])
+	require.NotEmpty(t, selectQuery.SelectItems)
+	return selectQuery.SelectItems[0].Expr
+}
+
+func TestLambdaBodyBindsLoosest(t *testing.T) {
+	// `x -> x + 1` is a lambda whose body is the whole `x + 1`, not `(x -> x) + 1`.
+	expr := parseSelectItemExpr(t, "SELECT arrayMap(x -> x + 1, arr)")
+	fn, ok := expr.(*FunctionExpr)
+	require.True(t, ok)
+	firstArg, ok := fn.Params.Items.Items[0].(*ColumnExpr)
+	require.True(t, ok)
+	lambda, ok := firstArg.Expr.(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKindArrow, lambda.Operation)
+	body, ok := lambda.RightExpr.(*BinaryOperation)
+	require.True(t, ok, "lambda body should be the binary operation `x + 1`, got %T", lambda.RightExpr)
+	require.Equal(t, TokenKind("+"), body.Operation)
+}
+
+func TestLambdaIsRightAssociative(t *testing.T) {
+	expr := parseSelectItemExpr(t, "SELECT x -> y -> x + y")
+	outer, ok := expr.(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKindArrow, outer.Operation)
+	_, ok = outer.LeftExpr.(*Ident)
+	require.True(t, ok, "outer lambda parameter should be `x`, got %T", outer.LeftExpr)
+	inner, ok := outer.RightExpr.(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKindArrow, inner.Operation)
+}
+
+func TestNotBindsLooserThanComparison(t *testing.T) {
+	// `NOT a = b` negates the whole comparison: NOT (a = b).
+	expr := parseSelectItemExpr(t, "SELECT NOT a = b")
+	not, ok := expr.(*UnaryExpr)
+	require.True(t, ok, "expected UnaryExpr at the top, got %T", expr)
+	require.Equal(t, TokenKind("NOT"), not.Kind)
+	cmp, ok := not.Expr.(*BinaryOperation)
+	require.True(t, ok, "NOT operand should be the comparison, got %T", not.Expr)
+	require.Equal(t, TokenKind("="), cmp.Operation)
+}
+
+func TestDoubleNot(t *testing.T) {
+	expr := parseSelectItemExpr(t, "SELECT NOT NOT a")
+	outer, ok := expr.(*UnaryExpr)
+	require.True(t, ok)
+	require.Equal(t, TokenKind("NOT"), outer.Kind)
+	inner, ok := outer.Expr.(*UnaryExpr)
+	require.True(t, ok, "inner expression should be the second NOT, got %T", outer.Expr)
+	require.Equal(t, TokenKind("NOT"), inner.Kind)
+	_, ok = inner.Expr.(*Ident)
+	require.True(t, ok)
+}
+
+func TestNotStopsAtAnd(t *testing.T) {
+	// NOT binds tighter than AND: `NOT a AND b` is `(NOT a) AND b`.
+	expr := parseSelectItemExpr(t, "SELECT NOT a AND b")
+	and, ok := expr.(*BinaryOperation)
+	require.True(t, ok, "expected AND at the top, got %T", expr)
+	require.Equal(t, TokenKind("AND"), and.Operation)
+	_, ok = and.LeftExpr.(*UnaryExpr)
+	require.True(t, ok, "left side of AND should be `NOT a`, got %T", and.LeftExpr)
+}
+
+func TestTernaryBindsBelowOr(t *testing.T) {
+	// `a OR b ? 1 : 2` groups as `(a OR b) ? 1 : 2`.
+	expr := parseSelectItemExpr(t, "SELECT a OR b ? 1 : 2")
+	ternary, ok := expr.(*TernaryOperation)
+	require.True(t, ok, "expected TernaryOperation at the top, got %T", expr)
+	cond, ok := ternary.Condition.(*BinaryOperation)
+	require.True(t, ok, "ternary condition should be `a OR b`, got %T", ternary.Condition)
+	require.Equal(t, TokenKind("OR"), cond.Operation)
+}
+
+func TestNotBetween(t *testing.T) {
+	expr := parseSelectItemExpr(t, "SELECT x NOT BETWEEN 1 AND 2")
+	between, ok := expr.(*BetweenClause)
+	require.True(t, ok, "expected BetweenClause, got %T", expr)
+	require.True(t, between.Not)
+	require.Equal(t, "x NOT BETWEEN 1 AND 2", Format(expr))
+
+	expr = parseSelectItemExpr(t, "SELECT x BETWEEN 1 AND 2")
+	between, ok = expr.(*BetweenClause)
+	require.True(t, ok)
+	require.False(t, between.Not)
+}
+
+func TestNotInGroupsLikeIn(t *testing.T) {
+	// Comparisons and membership associate in source order in ClickHouse.
+	for _, sql := range []string{"SELECT a = b IN (1)", "SELECT a = b NOT IN (1)"} {
+		expr := parseSelectItemExpr(t, sql)
+		in, ok := expr.(*BinaryOperation)
+		require.True(t, ok)
+		require.Contains(t, string(in.Operation), "IN", sql)
+		eq, ok := in.LeftExpr.(*BinaryOperation)
+		require.True(t, ok, "membership must apply to the comparison")
+		require.Equal(t, TokenKindSingleEQ, eq.Operation, sql)
+	}
+}
+
+func TestSignedNumberAfterClosingBracketIsBinaryOperator(t *testing.T) {
+	// A closing `)` or `]` ends an expression, so the following `+`/`-` is a
+	// binary operator and not the sign of the next numeric literal.
+	for _, sql := range []string{"SELECT (1)-1", "SELECT arr[1]-1", "SELECT f()-1"} {
+		expr := parseSelectItemExpr(t, sql)
+		op, ok := expr.(*BinaryOperation)
+		require.True(t, ok, "%s: expected BinaryOperation at the top, got %T", sql, expr)
+		require.Equal(t, TokenKindMinus, op.Operation, sql)
+		right, ok := op.RightExpr.(*NumberLiteral)
+		require.True(t, ok, "%s: right side should be the unsigned literal `1`, got %T", sql, op.RightExpr)
+		require.Equal(t, "1", right.Literal, sql)
+	}
+
+	// A `+`/`-` after an opening bracket is still a sign, not an operator.
+	expr := parseSelectItemExpr(t, "SELECT arr[-1]")
+	require.Equal(t, "arr[-1]", Format(expr))
+}
+
+// keywordArgOf returns the sole argument of a call, unwrapping its ColumnExpr.
+func keywordArgOf(t *testing.T, sql, name string) Expr {
+	t.Helper()
+	expr := parseSelectItemExpr(t, sql)
+	fn, ok := expr.(*FunctionExpr)
+	require.True(t, ok, "%s: expected FunctionExpr, got %T", sql, expr)
+	require.Equal(t, name, fn.Name.Name, sql)
+	require.Len(t, fn.Params.Items.Items, 1, sql)
+	arg, ok := fn.Params.Items.Items[0].(*ColumnExpr)
+	require.True(t, ok, "%s: argument should be wrapped in ColumnExpr, got %T", sql, fn.Params.Items.Items[0])
+	return arg.Expr
+}
+
+func TestTrimKeywordArgs(t *testing.T) {
+	from, ok := keywordArgOf(t, "SELECT trim(BOTH ' ' FROM ' x ')", "trim").(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKind(KeywordFrom), from.Operation)
+	modifier, ok := from.LeftExpr.(*UnaryExpr)
+	require.True(t, ok, "left side should be the BOTH modifier, got %T", from.LeftExpr)
+	require.Equal(t, TokenKind(KeywordBoth), modifier.Kind)
+	require.Equal(t, "SELECT trim(BOTH ' ' FROM ' x ')", Format(parseOneStmt(t, "SELECT trim(BOTH ' ' FROM ' x ')")))
+
+	for _, sql := range []string{
+		"SELECT trim(LEADING '0' FROM '00042')",
+		"SELECT trim(TRAILING '/' FROM '/api/')",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// The modifier, the characters and FROM are all required.
+	for _, sql := range []string{
+		"SELECT trim(' ' FROM ' x ')",
+		"SELECT trim(BOTH FROM ' x ')",
+		"SELECT trim(BOTH ' ')",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// BOTH is not reserved, so it stays usable as an ordinary name. ClickHouse
+	// rejects trim(both) itself — its trim grammar always reads BOTH as the
+	// modifier — so only the non-trim spellings are asserted.
+	for _, sql := range []string{"SELECT both FROM t", "SELECT max(both) FROM t", "SELECT a AS both FROM t"} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// Only `trim` has the keyword form; the explicit variants take commas alone,
+	// as in ClickHouse.
+	for _, sql := range []string{
+		"SELECT trimBoth('xxhixx', 'x')",
+		"SELECT trimLeft('xxhi', 'x')",
+		"SELECT trimRight('hixx', 'x')",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	for _, sql := range []string{
+		"SELECT trimBoth(BOTH ' ' FROM ' x ')",
+		"SELECT trimLeft(LEADING ' ' FROM ' x ')",
+		"SELECT trimRight(TRAILING ' ' FROM ' x ')",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// An argument alias works as it does for any other function.
+	for _, sql := range []string{"SELECT trim('x' AS y)", "SELECT trim(BOTH ' ' FROM ' x ' AS y)"} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// A trailing comma argument here is a ClickHouse arity error, not a syntax
+	// error, so the parser accepts it.
+	for _, sql := range []string{"SELECT trim(BOTH ' ' FROM ' x ', 'y')", "SELECT trim('  x  ', 'y')"} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+}
+
+func TestSubstringKeywordArgs(t *testing.T) {
+	// substring(s FROM 2 FOR 3) nests left-to-right: ((s FROM 2) FOR 3).
+	forOp, ok := keywordArgOf(t, "SELECT substring('hello' FROM 2 FOR 3)", "substring").(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKind(KeywordFor), forOp.Operation)
+	fromOp, ok := forOp.LeftExpr.(*BinaryOperation)
+	require.True(t, ok, "left side should be the FROM operation, got %T", forOp.LeftExpr)
+	require.Equal(t, TokenKind(KeywordFrom), fromOp.Operation)
+
+	// FOR is optional, FROM is not, and the arguments are ordinary expressions.
+	for _, sql := range []string{
+		"SELECT substring('hello' FROM 2)",
+		"SELECT substring(concat(a, b) FROM x + 1 FOR len(y))",
+		"SELECT substring('hello', 2, 3)",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// A comma fills the same slot a separator keyword would, so substring mixes
+	// the two freely.
+	for _, sql := range []string{
+		"SELECT substring('hello', 2 FOR 3)",
+		"SELECT substring('hello' FROM 2, 3)",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// A fourth slot is a syntax error however the earlier separators were spelled.
+	for _, sql := range []string{
+		"SELECT substring('hello', 2 FOR 3, 4)",
+		"SELECT substring('hello' FROM 2, 3, 4)",
+		"SELECT substring('hello' FROM 2 FOR 3, 4)",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// substringUTF8 has no keyword form, unlike overlayUTF8.
+	for _, sql := range []string{
+		"SELECT substring('hello' FOR 3)",
+		"SELECT substringUTF8('hello' FROM 2 FOR 3)",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// FROM keeps its clause meaning outside these argument lists.
+	require.Equal(t, "SELECT substring FROM t", Format(parseOneStmt(t, "SELECT substring FROM t")))
+}
+
+func TestOverlayKeywordArgs(t *testing.T) {
+	// overlay(s PLACING r FROM n FOR m) chains three separators in order.
+	forOp, ok := keywordArgOf(t, "SELECT overlay('Hello world' PLACING 'SQL' FROM 7 FOR 5)", "overlay").(*BinaryOperation)
+	require.True(t, ok)
+	require.Equal(t, TokenKind(KeywordFor), forOp.Operation)
+	fromOp, ok := forOp.LeftExpr.(*BinaryOperation)
+	require.True(t, ok, "expected the FROM operation, got %T", forOp.LeftExpr)
+	require.Equal(t, TokenKind(KeywordFrom), fromOp.Operation)
+	placingOp, ok := fromOp.LeftExpr.(*BinaryOperation)
+	require.True(t, ok, "expected the PLACING operation, got %T", fromOp.LeftExpr)
+	require.Equal(t, TokenKind(KeywordPlacing), placingOp.Operation)
+
+	for _, sql := range []string{
+		"SELECT overlay('Hello world' PLACING 'SQL' FROM 7)",
+		"SELECT overlayUTF8(s PLACING r FROM x + 1 FOR len(y)) FROM t",
+		"SELECT overlay(a, b, c) FROM t",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// Separators only count in the declared order, and both PLACING and FROM
+	// are required — ClickHouse rejects overlay(s PLACING r).
+	for _, sql := range []string{
+		"SELECT overlay(s FROM 2 PLACING r)",
+		"SELECT overlay(s FOR 3)",
+		"SELECT overlay('Hello world' PLACING 'SQL')",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// Unlike substring, overlay cannot mix commas with its keyword form in
+	// either direction.
+	for _, sql := range []string{
+		"SELECT overlay('Hello world' PLACING 'SQL' FROM 1, 2)",
+		"SELECT overlay('Hello world' PLACING 'SQL' FROM 1 FOR 2, 3)",
+		"SELECT overlay('Hello world', 'SQL' FROM 1)",
+		"SELECT overlay('Hello world', 'SQL', 1 FOR 2)",
+		"SELECT overlayUTF8('Hello world' PLACING 'SQL' FROM 1, 2)",
+		"SELECT overlayUTF8('Hello world', 'SQL' FROM 1)",
+	} {
+		_, err := NewParser(sql).ParseStmts()
+		require.Error(t, err, sql)
+	}
+
+	// The all-comma form keeps its own arity.
+	for _, sql := range []string{
+		"SELECT overlay('Hello world', 'SQL', 1)",
+		"SELECT overlay('Hello world', 'SQL', 1, 2)",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+
+	// OVERLAY and PLACING are non-reserved, so they stay usable as names.
+	for _, sql := range []string{"SELECT overlay, placing FROM t", "SELECT a AS overlay FROM t", "SELECT max(placing) FROM t"} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+}
+
+func TestIntersect(t *testing.T) {
+	stmts, err := NewParser("SELECT 1 INTERSECT SELECT 2").ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	selectQuery, ok := stmts[0].(*SelectQuery)
+	require.True(t, ok)
+	require.NotNil(t, selectQuery.Intersect)
+	require.Equal(t, "SELECT 1 INTERSECT SELECT 2", Format(stmts[0]))
+}
+
+func TestGlobalJoinLocalityPrefixesTheJoinType(t *testing.T) {
+	// the locality prefixes the join type, and both have to reach the modifiers
+	for _, tc := range []struct {
+		sql       string
+		modifiers []string
+	}{
+		{"SELECT * FROM t1 GLOBAL JOIN t2 ON t1.a = t2.a", []string{"GLOBAL", "JOIN"}},
+		{"SELECT * FROM t1 GLOBAL INNER JOIN t2 ON t1.a = t2.a", []string{"GLOBAL", "INNER", "JOIN"}},
+		{"SELECT * FROM t1 GLOBAL LEFT OUTER JOIN t2 ON t1.a = t2.a", []string{"GLOBAL", "LEFT", "OUTER", "JOIN"}},
+		{"SELECT * FROM t1 GLOBAL ANY LEFT JOIN t2 ON t1.a = t2.a", []string{"GLOBAL", "ANY", "LEFT", "JOIN"}},
+		{"SELECT * FROM t1 GLOBAL CROSS JOIN t2", []string{"GLOBAL", "CROSS", "JOIN"}},
+		{"SELECT * FROM t1 AS x LOCAL FULL JOIN t2 USING a", []string{"LOCAL", "FULL", "JOIN"}},
+	} {
+		from := parseOneStmt(t, tc.sql).(*SelectQuery).From.Expr
+		join, ok := from.(*JoinExpr)
+		require.True(t, ok, "%s: expected a *JoinExpr in FROM, got %T", tc.sql, from)
+
+		right, ok := join.Right.(*JoinExpr)
+		require.True(t, ok, "%s: expected the join to carry a right side, got %T", tc.sql, join.Right)
+		require.Equal(t, tc.modifiers, right.Modifiers, tc.sql)
+		require.Equal(t, tc.sql, Format(parseOneStmt(t, tc.sql)), tc.sql)
+	}
+}
+
+func TestLocalityWithoutAJoinKeepsItsKeyword(t *testing.T) {
+	// a GLOBAL with no join used to be consumed and dropped from Format(); the
+	// error now has to name it rather than the end of the statement
+	_, err := NewParser("SELECT * FROM t1 GLOBAL").ParseStmts()
+	require.ErrorContains(t, err, "GLOBAL")
+
+	// an explicit alias still names a table, as it does on the server
+	for _, sql := range []string{"SELECT * FROM t AS global", "SELECT * FROM t AS local"} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+}
+
+func TestGlobalAfterJoinConstraintStartsANewJoin(t *testing.T) {
+	// a GLOBAL after an ON/USING clause starts the next join, not a GLOBAL IN
+	sql := "SELECT * FROM t1 GLOBAL JOIN t2 ON t1.a = t2.a GLOBAL LEFT JOIN t3 ON t1.a = t3.a"
+	stmt := parseOneStmt(t, sql)
+	join := stmt.(*SelectQuery).From.Expr.(*JoinExpr)
+
+	first, ok := join.Right.(*JoinExpr)
+	require.True(t, ok)
+	require.Equal(t, []string{"GLOBAL", "JOIN"}, first.Modifiers)
+
+	second, ok := first.Right.(*JoinExpr)
+	require.True(t, ok, "the second GLOBAL should start another join, got %T", first.Right)
+	require.Equal(t, []string{"GLOBAL", "LEFT", "JOIN"}, second.Modifiers)
+	require.Equal(t, sql, Format(stmt))
+}
+
+func TestGlobalInAndGlobalNotIn(t *testing.T) {
+	for _, tc := range []struct {
+		sql    string
+		hasNot bool
+	}{
+		{"SELECT a GLOBAL IN (SELECT 1)", false},
+		{"SELECT a GLOBAL NOT IN (SELECT 1)", true},
+	} {
+		expr := parseSelectItemExpr(t, tc.sql)
+		in, ok := expr.(*BinaryOperation)
+		require.True(t, ok, "%s: expected BinaryOperation at the top, got %T", tc.sql, expr)
+		require.Equal(t, TokenKind(KeywordIn), in.Operation, tc.sql)
+		require.True(t, in.HasGlobal, tc.sql)
+		require.Equal(t, tc.hasNot, in.HasNot, tc.sql)
+	}
+}
+
+// parseTableFunctionExpr parses a single-statement SELECT and returns the
+// table function in its FROM clause.
+func parseTableFunctionExpr(t *testing.T, sql string) *TableFunctionExpr {
+	t.Helper()
+	from := parseOneStmt(t, sql).(*SelectQuery).From.Expr
+	table, ok := from.(*JoinTableExpr)
+	require.True(t, ok, "%s: expected *JoinTableExpr in FROM, got %T", sql, from)
+	fn, ok := table.Table.Expr.(*TableFunctionExpr)
+	require.True(t, ok, "%s: expected *TableFunctionExpr, got %T", sql, table.Table.Expr)
+	return fn
+}
+
+func TestTableFunctionArgAcceptsOperatorExpressions(t *testing.T) {
+	// a table-function argument continues into the operator loop, so the
+	// argument is the whole `1 + 1`, not just the first literal
+	fn := parseTableFunctionExpr(t, "SELECT * FROM numbers(1 + 1)")
+	require.Len(t, fn.Args.Args, 1)
+	op, ok := fn.Args.Args[0].(*BinaryOperation)
+	require.True(t, ok, "argument should be the binary operation `1 + 1`, got %T", fn.Args.Args[0])
+	require.Equal(t, TokenKindPlus, op.Operation)
+
+	// a nested call keeps its *TableFunctionExpr shape as the left operand
+	fn = parseTableFunctionExpr(t, "SELECT * FROM numbers(intDiv(a, b) + 1)")
+	op, ok = fn.Args.Args[0].(*BinaryOperation)
+	require.True(t, ok, "argument should be a binary operation, got %T", fn.Args.Args[0])
+	_, ok = op.LeftExpr.(*TableFunctionExpr)
+	require.True(t, ok, "left operand should stay a *TableFunctionExpr, got %T", op.LeftExpr)
+
+	for _, sql := range []string{
+		"SELECT * FROM numbers(greatest(1, a - b))",
+		"SELECT * FROM cluster('c', numbers(1 + 1))",
+		"SELECT * FROM numbers(x AND y)",
+	} {
+		require.Equal(t, sql, Format(parseOneStmt(t, sql)), sql)
+	}
+}
+
+func TestTableFunctionArgFloatAndZeroArgumentCall(t *testing.T) {
+	fn := parseTableFunctionExpr(t, "SELECT * FROM numbers(1.5)")
+	num, ok := fn.Args.Args[0].(*NumberLiteral)
+	require.True(t, ok, "argument should be a *NumberLiteral, got %T", fn.Args.Args[0])
+	require.Equal(t, "1.5", num.Literal)
+
+	fn = parseTableFunctionExpr(t, "SELECT * FROM numbers(now())")
+	nested, ok := fn.Args.Args[0].(*TableFunctionExpr)
+	require.True(t, ok, "argument should be the zero-argument call, got %T", fn.Args.Args[0])
+	require.Empty(t, nested.Args.Args)
+}
+
+func TestTableFunctionArgParenthesizedExpression(t *testing.T) {
+	// a leading '(' that does not open a subquery is a parenthesized
+	// expression, with the shape the scalar `SELECT (1 + 1)` produces
+	fn := parseTableFunctionExpr(t, "SELECT * FROM numbers((1 + 1))")
+	params, ok := fn.Args.Args[0].(*ParamExprList)
+	require.True(t, ok, "argument should be a *ParamExprList, got %T", fn.Args.Args[0])
+	require.Len(t, params.Items.Items, 1)
+	item, ok := params.Items.Items[0].(*ColumnExpr)
+	require.True(t, ok, "parenthesized item should be a *ColumnExpr, got %T", params.Items.Items[0])
+	_, ok = item.Expr.(*BinaryOperation)
+	require.True(t, ok, "parenthesized argument should hold `1 + 1`, got %T", item.Expr)
+
+	sql := "SELECT * FROM numbers((a + b) * c)"
+	require.Equal(t, sql, Format(parseOneStmt(t, sql)))
+
+	// a '(' that opens a subquery still parses as one
+	fn = parseTableFunctionExpr(t, "SELECT * FROM remote('127.0.0.1', (SELECT 1))")
+	_, ok = fn.Args.Args[1].(*SubQuery)
+	require.True(t, ok, "second argument should stay a *SubQuery, got %T", fn.Args.Args[1])
+}
+
+func TestTableFunctionArgShapesUnchanged(t *testing.T) {
+	// a signed literal is still one literal, not a unary operation
+	fn := parseTableFunctionExpr(t, "SELECT * FROM numbers(-1)")
+	num, ok := fn.Args.Args[0].(*NumberLiteral)
+	require.True(t, ok, "argument should stay the signed literal `-1`, got %T", fn.Args.Args[0])
+	require.Equal(t, "-1", num.Literal)
+
+	// a qualified name is still a *NestedIdentifier, not an IndexOperation
+	fn = parseTableFunctionExpr(t, "SELECT * FROM cluster('c', db.table)")
+	require.Len(t, fn.Args.Args, 2)
+	_, ok = fn.Args.Args[1].(*NestedIdentifier)
+	require.True(t, ok, "second argument should stay a *NestedIdentifier, got %T", fn.Args.Args[1])
+}
+
+func TestGlobalInGroupsLikeIn(t *testing.T) {
+	for _, sql := range []string{"SELECT a = b GLOBAL IN (1)", "SELECT a = b GLOBAL NOT IN (1)"} {
+		expr := parseSelectItemExpr(t, sql)
+		in, ok := expr.(*BinaryOperation)
+		require.True(t, ok)
+		require.Equal(t, TokenKind(KeywordIn), in.Operation, sql)
+		require.True(t, in.HasGlobal, sql)
+		eq, ok := in.LeftExpr.(*BinaryOperation)
+		require.True(t, ok, "membership must apply to the comparison")
+		require.Equal(t, TokenKindSingleEQ, eq.Operation, sql)
+	}
+}
+
+func TestIntervalAsColumnName(t *testing.T) {
+	// An unquoted `interval` in expression position is a column reference when
+	// the INTERVAL operator reading fails: `WHERE interval > 1` is `interval > 1`.
+	stmts, err := NewParser("SELECT a FROM t WHERE interval > 1").ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+	selectQuery, ok := stmts[0].(*SelectQuery)
+	require.True(t, ok, "expected *SelectQuery, got %T", stmts[0])
+	require.NotNil(t, selectQuery.Where)
+
+	cmp, ok := selectQuery.Where.Expr.(*BinaryOperation)
+	require.True(t, ok, "WHERE expression should be the comparison, got %T", selectQuery.Where.Expr)
+	require.Equal(t, TokenKind(">"), cmp.Operation)
+
+	left, ok := cmp.LeftExpr.(*Ident)
+	require.True(t, ok, "left side of `>` should be the `interval` column, got %T", cmp.LeftExpr)
+	require.Equal(t, "interval", left.Name)
+	_, ok = cmp.RightExpr.(*NumberLiteral)
+	require.True(t, ok, "right side of `>` should be the number literal, got %T", cmp.RightExpr)
+}
+
+func TestIntervalOperatorStillParses(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT INTERVAL 4 DAY",
+		"SELECT INTERVAL .1 DAY",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			expr := parseSelectItemExpr(t, sql)
+			interval, ok := expr.(*IntervalExpr)
+			require.True(t, ok, "expected *IntervalExpr, got %T", expr)
+			require.Equal(t, "DAY", interval.Unit.Name)
+		})
+	}
+}
+
+func TestRepeatedIntervalColumnsParseInPolynomialTime(t *testing.T) {
+	// Each failed INTERVAL-operator attempt reparses its whole suffix, so
+	// without memoizing the failures this input backtracks exponentially and
+	// the test hangs rather than fails.
+	sql := "SELECT " + strings.Repeat("interval + ", 60) + "interval FROM t"
+	stmts, err := NewParser(sql).ParseStmts()
+	require.NoError(t, err)
+	require.Len(t, stmts, 1)
+}
+
+func TestParser_UnaryPostfixBinding(t *testing.T) {
+	for _, sql := range []string{"SELECT -tuple(1, 2).1", "SELECT -arr[1]", "SELECT -x::Int64", "SELECT - -x"} {
+		t.Run(sql, func(t *testing.T) {
+			expr := parseSelectItemExpr(t, sql)
+			unary, ok := expr.(*UnaryExpr)
+			require.True(t, ok, "expected unary minus outside postfix operation, got %T", expr)
+			require.Equal(t, TokenKindMinus, unary.Kind)
+			switch sql {
+			case "SELECT -tuple(1, 2).1":
+				require.IsType(t, &IndexOperation{}, unary.Expr)
+			case "SELECT -arr[1]":
+				require.IsType(t, &ObjectParams{}, unary.Expr)
+			case "SELECT -x::Int64":
+				require.IsType(t, &BinaryOperation{}, unary.Expr)
+			case "SELECT - -x":
+				require.IsType(t, &UnaryExpr{}, unary.Expr)
+			}
+		})
+	}
+}
+
+func TestParser_ComparisonAndBetweenBinding(t *testing.T) {
+	for _, tc := range []struct {
+		sql        string
+		root, left TokenKind
+	}{
+		{"SELECT a LIKE b IN (1)", "IN", "LIKE"},
+		{"SELECT a = b LIKE c", "LIKE", "="},
+		{"SELECT a LIKE b = c", "=", "LIKE"},
+	} {
+		expr, ok := parseSelectItemExpr(t, tc.sql).(*BinaryOperation)
+		require.True(t, ok)
+		require.Equal(t, tc.root, expr.Operation)
+		left, ok := expr.LeftExpr.(*BinaryOperation)
+		require.True(t, ok)
+		require.Equal(t, tc.left, left.Operation)
+	}
+	expr, ok := parseSelectItemExpr(t, "SELECT a BETWEEN b = c AND d = e").(*BetweenClause)
+	require.True(t, ok)
+	for _, bound := range []Expr{expr.Between, expr.And} {
+		comparison, ok := bound.(*BinaryOperation)
+		require.True(t, ok)
+		require.Equal(t, TokenKindSingleEQ, comparison.Operation)
+	}
+}
+
+func TestParser_CastBeforePostfix(t *testing.T) {
+	for _, sql := range []string{"SELECT a::Int64[1]", "SELECT a::Array(Int64)[1]"} {
+		expr := parseSelectItemExpr(t, sql)
+		array, ok := expr.(*ObjectParams)
+		require.True(t, ok, "array access must apply to the cast result")
+		cast, ok := array.Object.(*BinaryOperation)
+		require.True(t, ok)
+		require.Equal(t, TokenKindDash, cast.Operation)
+		require.Equal(t, sql, "SELECT "+Format(expr))
+	}
+}
