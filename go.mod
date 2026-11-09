@@ -3,7 +3,7 @@ module github.com/AfterShip/clickhouse-sql-parser
 go 1.21.0
 
 require (
-	github.com/sebdah/goldie/v2 v2.5.3
+	github.com/sebdah/goldie/v2 v2.8.0
 	github.com/stretchr/testify v1.8.4
 )
 
